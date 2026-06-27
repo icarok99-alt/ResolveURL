@@ -192,39 +192,26 @@ class AbyssResolver(ResolveUrl):
             return None
 
         mp4 = media_payload.get('mp4') if isinstance(media_payload.get('mp4'), dict) else {}
+        domains = mp4.get('domains') if isinstance(mp4.get('domains'), list) else []
         raw_sources = mp4.get('sources') if isinstance(mp4.get('sources'), list) else []
+
+        _CODEC_RANK   = {'h264': 0, 'h265': 1}
+        _QUALITY_RANK = {'1080p': 0, '720p': 1, '480p': 2, '360p': 3}
+
+        def _src_rank(s):
+            codec = str(s.get('codec', '')).lower()
+            label = str(s.get('label', '')).lower()
+            return (_CODEC_RANK.get(codec, 9), _QUALITY_RANK.get(label, 9))
+
         sources = sorted(
             [s for s in raw_sources if isinstance(s, dict)],
-            key=lambda s: int(s.get('size', 0) or 0),
-            reverse=True
+            key=_src_rank
         )
-        for src in sources:
-            direct = src.get('file')
-            if isinstance(direct, str) and direct:
-                return direct.replace('\\/', '/')
-            if not is_download:
-                url_ = src.get('url')
-                path_ = src.get('path')
-                if isinstance(url_, str) and isinstance(path_, str) and url_ and path_:
-                    return '{0}/{1}'.format(url_.rstrip('/'), path_.lstrip('/')).replace('\\/', '/')
 
-        hls = media_payload.get('hls') if isinstance(media_payload.get('hls'), dict) else {}
-        for key in ('file', 'url', 'master', 'src', 'source'):
-            val = hls.get(key)
-            if isinstance(val, str) and val:
-                return val.replace('\\/', '/')
-        for hs in (hls.get('sources') or []):
-            if not isinstance(hs, dict):
-                continue
-            f = hs.get('file') or hs.get('url') or hs.get('src')
-            if isinstance(f, str) and f:
-                return f.replace('\\/', '/')
-
-        domains = mp4.get('domains') if isinstance(mp4.get('domains'), list) else []
         for src in sources:
-            size = src.get('size')
+            size   = src.get('size')
             res_id = src.get('res_id')
-            sub = src.get('sub')
+            sub    = src.get('sub')
             if not (size and res_id and sub and md5_id and slug):
                 continue
             domain = next((d for d in domains if isinstance(d, str) and sub in d), None)
@@ -232,15 +219,10 @@ class AbyssResolver(ResolveUrl):
                 continue
             path_value = '/mp4/{0}/{1}/{2}?v={3}'.format(md5_id, res_id, size, slug)
             token = self._build_sora_token(path_value, str(size))
-            if token:
-                norm = domain if domain.startswith('http') else 'https://' + domain
-                url = '{0}/sora/{1}/{2}'.format(norm.rstrip('/'), size, token)
-                return url
-
-        hls_id = hls.get('id')
-        if hls_id:
-            url = 'https://abysscdn.com/#hls/{0}/master.m3u8'.format(hls_id)
-            return url
+            if not token:
+                continue
+            norm = domain if domain.startswith('http') else 'https://' + domain
+            return '{0}/sora/{1}/{2}'.format(norm.rstrip('/'), size, token)
 
         return None
 
